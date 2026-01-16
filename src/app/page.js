@@ -1,65 +1,318 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useState, useMemo } from "react";
+import { Trash2, Edit2, Plus, X } from "lucide-react";
+
+/* ---------------- SAFE FETCH ---------------- */
+async function safeFetch(url, options = {}) {
+  const res = await fetch(url, options);
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || "Request failed");
+  }
+
+  const contentType = res.headers.get("content-type");
+  if (!contentType || !contentType.includes("application/json")) {
+    return null;
+  }
+
+  return res.json();
+}
 
 export default function Home() {
+  const [expenses, setExpenses] = useState([]);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+
+  const [form, setForm] = useState({
+    title: "",
+    amount: "",
+    category: "",
+    date: new Date().toISOString().split("T")[0],
+    description: "",
+  });
+
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [dateRange, setDateRange] = useState({ start: "", end: "" });
+
+  const categories = [
+    { name: "All" },
+    { name: "Food" },
+    { name: "Transport" },
+    { name: "Shopping" },
+    { name: "Bills" },
+    { name: "Entertainment" },
+    { name: "Health" },
+    { name: "Education" },
+    { name: "Investment" },
+    { name: "Other" },
+  ];
+
+  /* ---------------- LOAD ---------------- */
+  async function loadExpenses() {
+    try {
+      const data = await safeFetch("/api/expenses");
+      setExpenses(data || []);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to load expenses");
+    }
+  }
+
+  useEffect(() => {
+    loadExpenses();
+  }, []);
+
+  /* ---------------- CREATE / UPDATE ---------------- */
+  async function handleSubmit() {
+    if (!form.title || !form.amount || !form.category) {
+      alert("Please fill all required fields");
+      return;
+    }
+
+    try {
+      const method = editingId ? "PUT" : "POST";
+      const url = editingId
+        ? `/api/expenses/${editingId}`
+        : "/api/expenses";
+
+      const saved = await safeFetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+
+      setExpenses((prev) =>
+        editingId
+          ? prev.map((e) => (e._id === editingId ? saved : e))
+          : [saved, ...prev]
+      );
+
+      resetForm();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  /* ---------------- DELETE ---------------- */
+  async function deleteExpense(id) {
+    if (!confirm("Delete this expense?")) return;
+
+    try {
+      const res = await safeFetch(`/api/expenses/${id}`, {
+        method: "DELETE",
+      });
+
+      setExpenses((prev) =>
+        prev.filter(
+          (e) => e._id?.toString() !== res.deletedId.toString()
+        )
+      );
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  /* ---------------- EDIT ---------------- */
+  function editExpense(exp) {
+    setForm({
+      title: exp.title,
+      amount: exp.amount,
+      category: exp.category,
+      date: exp.date
+        ? new Date(exp.date).toISOString().split("T")[0]
+        : new Date().toISOString().split("T")[0],
+      description: exp.description || "",
+    });
+
+    setEditingId(exp._id);
+    setIsFormOpen(true);
+  }
+
+  function resetForm() {
+    setForm({
+      title: "",
+      amount: "",
+      category: "",
+      date: new Date().toISOString().split("T")[0],
+      description: "",
+    });
+    setEditingId(null);
+    setIsFormOpen(false);
+  }
+
+  /* ---------------- FILTERING ---------------- */
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter((exp) => {
+      const matchesCategory =
+        selectedCategory === "All" || exp.category === selectedCategory;
+
+      const matchesSearch =
+        exp.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        exp.category.toLowerCase().includes(searchTerm.toLowerCase());
+
+      let matchesDate = true;
+      if (dateRange.start && dateRange.end) {
+        const d = new Date(exp.date);
+        matchesDate =
+          d >= new Date(dateRange.start) &&
+          d <= new Date(dateRange.end);
+      }
+
+      return matchesCategory && matchesSearch && matchesDate;
+    });
+  }, [expenses, selectedCategory, searchTerm, dateRange]);
+
+  /* ---------------- STATS ---------------- */
+  const totalExpenses = useMemo(
+    () =>
+      filteredExpenses.reduce(
+        (sum, exp) => sum + Number(exp.amount),
+        0
+      ),
+    [filteredExpenses]
+  );
+
+  /* ---------------- UI ---------------- */
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.js file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <main className="min-h-screen bg-stone-50 p-6">
+      <header className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">Expense Tracker</h1>
+        <button
+          onClick={() => setIsFormOpen(true)}
+          className="bg-amber-600 text-white px-4 py-2 rounded-lg flex items-center gap-2"
+        >
+          <Plus size={18} /> Add Expense
+        </button>
+      </header>
+
+      <p className="mb-4 font-semibold">
+        Total: ₹{totalExpenses.toLocaleString("en-IN")}
+      </p>
+
+      <div className="space-y-3">
+        {filteredExpenses.map((exp) => (
+          <div
+            key={exp._id}
+            className="bg-white p-4 rounded-lg shadow flex justify-between items-center"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+            <div>
+              <p className="font-bold">{exp.title}</p>
+              <p className="text-sm text-gray-500">
+                {exp.category} ·{" "}
+                {new Date(exp.date).toLocaleDateString()}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <p className="font-bold text-amber-700">
+                ₹{Number(exp.amount).toLocaleString("en-IN")}
+              </p>
+              <button
+                onClick={() => editExpense(exp)}
+                className="text-blue-600"
+              >
+                <Edit2 size={18} />
+              </button>
+              <button
+                onClick={() => deleteExpense(exp._id)}
+                className="text-red-600"
+              >
+                <Trash2 size={18} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* MODAL */}
+      {isFormOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center">
+          <div className="bg-white p-6 rounded-lg w-full max-w-md relative">
+            <button
+              onClick={resetForm}
+              className="absolute top-3 right-3"
+            >
+              <X />
+            </button>
+
+            <h2 className="text-xl font-bold mb-4">
+              {editingId ? "Edit Expense" : "Add Expense"}
+            </h2>
+
+            <input
+              className="w-full border p-2 mb-2"
+              placeholder="Title"
+              value={form.title}
+              onChange={(e) =>
+                setForm({ ...form, title: e.target.value })
+              }
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+            <input
+              className="w-full border p-2 mb-2"
+              type="number"
+              placeholder="Amount"
+              value={form.amount}
+              onChange={(e) =>
+                setForm({ ...form, amount: e.target.value })
+              }
+            />
+
+            <select
+              className="w-full border p-2 mb-2"
+              value={form.category}
+              onChange={(e) =>
+                setForm({ ...form, category: e.target.value })
+              }
+            >
+              <option value="">Select category</option>
+              {categories
+                .filter((c) => c.name !== "All")
+                .map((c) => (
+                  <option key={c.name} value={c.name}>
+                    {c.name}
+                  </option>
+                ))}
+            </select>
+
+            <input
+              className="w-full border p-2 mb-2"
+              type="date"
+              value={form.date}
+              onChange={(e) =>
+                setForm({ ...form, date: e.target.value })
+              }
+            />
+
+            <textarea
+              className="w-full border p-2 mb-4"
+              placeholder="Description"
+              value={form.description}
+              onChange={(e) =>
+                setForm({ ...form, description: e.target.value })
+              }
+            />
+
+            <div className="flex gap-2">
+              <button
+                onClick={resetForm}
+                className="flex-1 bg-gray-200 p-2 rounded"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmit}
+                className="flex-1 bg-amber-600 text-white p-2 rounded"
+              >
+                {editingId ? "Update" : "Add"}
+              </button>
+            </div>
+          </div>
         </div>
-      </main>
-    </div>
+      )}
+    </main>
   );
 }
